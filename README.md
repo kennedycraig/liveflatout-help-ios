@@ -29,17 +29,25 @@ package via **File → Add Packages… → Add Local…** and select
 A separate mirror repository for remote consumption is tracked in
 `docs/backlog.md`.
 
-## Anonymous widget
+## `HelpSheet` — batteries-included
+
+For most host apps, `HelpSheet` is the entry point. It wraps `LfhHelpWidget`
+in a `NavigationStack` with a "Done" toolbar, a `ProgressView` while the
+identity loads, and a retry screen on failure.
+
+### Anonymous
 
 ```swift
 import SwiftUI
 import LfhHelpWidget
 
-struct HelpView: View {
-    @Environment(\.dismiss) private var dismiss
+struct RootView: View {
+    @State private var helpOpen = false
     var body: some View {
-        LfhHelpWidget(appId: "app1", identity: .anonymous, onClose: { dismiss() })
-            .ignoresSafeArea(.keyboard)
+        Button("Help") { helpOpen = true }
+            .sheet(isPresented: $helpOpen) {
+                HelpSheet(appId: "app1")
+            }
     }
 }
 ```
@@ -47,32 +55,44 @@ struct HelpView: View {
 The visitor sees a contact form; submitting it creates a `channel: 'chat'`
 conversation in the helpdesk Inbox.
 
-## Secure Mode (identified user)
+### Secure Mode (identified user)
 
 Prerequisite: the host app's Firebase project ID must be listed on
 `/apps/{appId}.trustedProjects[]` in Firestore. Set via
 `/admin/settings/<appId>` in the helpdesk admin dashboard.
 
 ```swift
+import SwiftUI
 import FirebaseAuth
 import LfhHelpWidget
 
-func openHelp() async throws {
-    guard let user = Auth.auth().currentUser else { return }
-    let idToken = try await user.getIDToken()
-
-    let identity = try await LfhHelpClient().issueSignature(
-        appId: "app1",
-        idToken: idToken,
-        name: user.displayName
-    )
-    // Present LfhHelpWidget(appId: "app1", identity: identity)
+.sheet(isPresented: $helpOpen) {
+    HelpSheet(appId: "app1") {
+        guard let user = Auth.auth().currentUser else { return .anonymous }
+        let token = try await user.getIDToken()
+        return try await LfhHelpClient().issueSignature(
+            appId: "app1",
+            idToken: token,
+            name: user.displayName
+        )
+    }
 }
 ```
 
-`LfhHelpClient` defaults to production endpoints defined in `LfhHelpConfig.production`.
-Override via `LfhHelpClient(config: .init(widgetOrigin: ..., issueSignatureURL: ...))`
+The closure runs every time the sheet is presented, so it always sees the
+current signed-in user. `LfhHelpClient` defaults to production endpoints in
+`LfhHelpConfig.production`; override via `LfhHelpClient(config: .init(...))`
 for local or staging testing.
+
+## Low-level: `LfhHelpWidget` directly
+
+If `HelpSheet`'s chrome doesn't fit your presentation style, skip it and
+compose `LfhHelpWidget` yourself:
+
+```swift
+LfhHelpWidget(appId: "app1", identity: .anonymous, onClose: { dismiss() })
+    .ignoresSafeArea(.keyboard)
+```
 
 ## iOS version support
 
