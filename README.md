@@ -72,7 +72,7 @@ import SwiftUI
 import FirebaseAuth
 import LfhHelpWidget
 
-.sheet(isPresented: $helpOpen) {
+.fullScreenCover(isPresented: $helpOpen) {
     HelpSheet(appId: "app1") {
         guard let user = Auth.auth().currentUser else { return .anonymous }
         let token = try await user.getIDToken()
@@ -89,6 +89,13 @@ The closure runs every time the sheet is presented, so it always sees the
 current signed-in user. `LfhHelpClient` defaults to production endpoints in
 `LfhHelpConfig.production`; override via `LfhHelpClient(config: .init(...))`
 for local or staging testing.
+
+> **Use `.fullScreenCover`, not `.sheet`.** SwiftUI dismisses a `.sheet`
+> when an iOS system picker (the Files app's `UIDocumentPicker` in
+> particular) tries to present over it — visitors who tap the widget's
+> attach button and pick "Choose Files" lose the help screen mid-pick.
+> `.fullScreenCover` keeps the presentation context intact so file
+> uploads work end-to-end.
 
 ### Request timeout
 

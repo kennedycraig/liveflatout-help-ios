@@ -15,7 +15,14 @@ import WebKit
 ///
 /// The widget performs its own Firebase sign-in (anonymous or custom-token
 /// via `widgetMintToken`) — this wrapper only builds the URL.
-public struct LfhHelpWidget: UIViewRepresentable {
+///
+/// > **Presentation note:** when host apps want users to attach files via
+/// > the in-widget picker, present this view through `.fullScreenCover(...)`
+/// > rather than `.sheet(...)`. SwiftUI `.sheet` is dismissed by iOS when a
+/// > `UIDocumentPicker` (Files app) presents over it. `.fullScreenCover`
+/// > with this view's underlying `UIViewControllerRepresentable` keeps the
+/// > picker presentation context intact.
+public struct LfhHelpWidget: UIViewControllerRepresentable {
     public let appId: String
     public let identity: Identity
     public let config: LfhHelpConfig
@@ -37,7 +44,7 @@ public struct LfhHelpWidget: UIViewRepresentable {
         Coordinator(onClose: onClose)
     }
 
-    public func makeUIView(context: Context) -> WKWebView {
+    public func makeUIViewController(context: Context) -> WidgetHostController {
         let prefs = WKWebpagePreferences()
         prefs.allowsContentJavaScript = true
 
@@ -68,10 +75,11 @@ public struct LfhHelpWidget: UIViewRepresentable {
         let initial = iframeURL()
         context.coordinator.lastLoadedURL = initial
         webView.load(URLRequest(url: initial))
-        return webView
+
+        return WidgetHostController(webView: webView)
     }
 
-    public func updateUIView(_ webView: WKWebView, context: Context) {
+    public func updateUIViewController(_ controller: WidgetHostController, context: Context) {
         // Compare against the last URL we *intentionally* loaded, not
         // webView.url — the iframe page strips its Secure Mode query
         // params via history.replaceState() shortly after first load,
@@ -81,7 +89,7 @@ public struct LfhHelpWidget: UIViewRepresentable {
         let target = iframeURL()
         if context.coordinator.lastLoadedURL != target {
             context.coordinator.lastLoadedURL = target
-            webView.load(URLRequest(url: target))
+            controller.webView.load(URLRequest(url: target))
         }
         context.coordinator.onClose = onClose
     }
@@ -112,6 +120,39 @@ public struct LfhHelpWidget: UIViewRepresentable {
                 break
             }
         }
+    }
+}
+
+/// Plain UIViewController whose only job is to host the WKWebView. Having
+/// a real UIViewController in the responder chain is what lets iOS find a
+/// presentation context for system pickers (UIDocumentPicker, PHPicker,
+/// etc.) that WKWebView triggers from `<input type="file">`. Without this
+/// the file picker silently fails to present from inside a SwiftUI sheet
+/// or fullScreenCover.
+public final class WidgetHostController: UIViewController {
+    public let webView: WKWebView
+
+    init(webView: WKWebView) {
+        self.webView = webView
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    public override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(webView)
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
     }
 }
 
