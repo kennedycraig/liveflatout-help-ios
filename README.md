@@ -107,6 +107,42 @@ UI sooner than that on a stalled cold start:
 let client = LfhHelpClient(requestTimeout: 15)
 ```
 
+## Programmatic send (no UI)
+
+For "Send Diagnostics" menu items and any flow where you want to ship
+a message without opening the help sheet, call `LfhHelpClient.sendMessage`:
+
+```swift
+import FirebaseAuth
+import LfhHelpWidget
+
+@MainActor
+func sendCrashReport(logFile: URL) async throws {
+    guard let user = Auth.auth().currentUser else { return }
+    let token = try await user.getIDToken()
+    let result = try await LfhHelpClient().sendMessage(
+        appId: "app1",
+        idToken: token,
+        body: "App crashed on the rides screen. Log attached.",
+        attachments: [logFile],
+        name: user.displayName
+    )
+    print("posted to conversation \(result.conversationId)")
+}
+```
+
+For each file URL, the client mints a v4-signed Firebase Storage PUT
+URL via the helpdesk backend, streams the bytes, then posts the message
+metadata. No Firebase iOS SDK needed — pure `URLSession`.
+
+The same `trustedProjects[]` requirement as Secure Mode applies: the
+host app's Firebase project ID must be on `/apps/{appId}.trustedProjects[]`
+in the helpdesk Firestore. Per-attachment cap 25 MB; per-message cap 10
+attachments.
+
+If you don't supply `conversationId`, the message lands on the customer's
+most-recent conversation, or starts a new one if there isn't one.
+
 ## Low-level: `LfhHelpWidget` directly
 
 If `HelpSheet`'s chrome doesn't fit your presentation style, skip it and
