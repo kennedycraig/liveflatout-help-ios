@@ -55,6 +55,16 @@ public struct LfhHelpWidget: UIViewRepresentable {
         webView.isOpaque = false
         webView.backgroundColor = .systemBackground
 
+        // Since iOS 16.4 WKWebView is opt-in for Web Inspector. Enable in
+        // DEBUG builds so host-app developers can attach Mac Safari's
+        // inspector to diagnose widget JS issues. Production builds stay
+        // un-inspectable.
+        #if DEBUG
+        if #available(iOS 16.4, *) {
+            webView.isInspectable = true
+        }
+        #endif
+
         webView.load(URLRequest(url: iframeURL()))
         return webView
     }
