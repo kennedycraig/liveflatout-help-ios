@@ -82,6 +82,184 @@ public actor LfhHelpClient {
             version: r.v
         )
     }
+
+    // MARK: - Programmatic send
+
+    public struct SendResult: Sendable, Equatable {
+        public let conversationId: String
+        public let messageId: String
+    }
+
+    /// Sends a message on the visitor's behalf without opening the help
+    /// widget UI. Useful for "Send Diagnostics" menu actions or any flow
+    /// that wants to ship a body + attachments programmatically.
+    ///
+    /// Files are uploaded directly to Firebase Storage via per-file
+    /// v4-signed PUT URLs minted by the helpdesk backend; no Firebase
+    /// SDK is needed on the host app.
+    ///
+    /// - Parameters:
+    ///   - appId: helpdesk app slug.
+    ///   - idToken: Firebase Auth ID token from the host app's project.
+    ///     The project ID must be listed on `/apps/{appId}.trustedProjects[]`.
+    ///   - body: plain-text message body.
+    ///   - attachments: local file URLs to upload and attach. Each
+    ///     uploaded as its own object under the customer's prefix.
+    ///   - name: optional display name to upsert onto the customer doc.
+    ///   - conversationId: append to a specific conversation; otherwise
+    ///     finds-or-creates the customer's most-recent thread.
+    /// - Returns: ids of the conversation + message that were written.
+    public func sendMessage(
+        appId: String,
+        idToken: String,
+        body: String,
+        attachments: [URL] = [],
+        name: String? = nil,
+        conversationId: String? = nil
+    ) async throws -> SendResult {
+        var uploaded: [SendAttachment] = []
+        for url in attachments {
+            uploaded.append(try await uploadOneAttachment(appId: appId, idToken: idToken, fileURL: url))
+        }
+        return try await postSendAsCustomer(
+            appId: appId,
+            idToken: idToken,
+            body: body,
+            attachments: uploaded,
+            name: name,
+            conversationId: conversationId
+        )
+    }
+
+    // Internal: mint a signed URL, then PUT the file bytes.
+    private func uploadOneAttachment(
+        appId: String,
+        idToken: String,
+        fileURL: URL
+    ) async throws -> SendAttachment {
+        let data = try Data(contentsOf: fileURL)
+        let filename = fileURL.lastPathComponent
+        let contentType = guessContentType(for: fileURL)
+
+        // 1. Mint the signed URL.
+        var mintRequest = URLRequest(url: config.signedUploadURL)
+        mintRequest.httpMethod = "POST"
+        mintRequest.timeoutInterval = requestTimeout
+        mintRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let mintPayload: [String: Any] = [
+            "data": [
+                "appId": appId,
+                "idToken": idToken,
+                "filename": filename,
+                "contentType": contentType,
+                "size": data.count,
+            ],
+        ]
+        mintRequest.httpBody = try JSONSerialization.data(withJSONObject: mintPayload, options: [])
+        let (mintBody, mintResp) = try await session.data(for: mintRequest)
+        guard let mintHttp = mintResp as? HTTPURLResponse else {
+            throw Error.malformedResponse
+        }
+        if !(200..<300).contains(mintHttp.statusCode) {
+            if let err = try? JSONDecoder().decode(CallableErrorEnvelope.self, from: mintBody) {
+                throw Error.callable(status: err.error.status, message: err.error.message)
+            }
+            throw Error.httpStatus(mintHttp.statusCode)
+        }
+        let mint = try JSONDecoder().decode(SignedUploadEnvelope.self, from: mintBody).result
+
+        // 2. PUT bytes to the signed URL. Match the contentType on the
+        //    signature exactly; mismatched contentType -> 403 from GCS.
+        var putRequest = URLRequest(url: URL(string: mint.uploadUrl)!)
+        putRequest.httpMethod = "PUT"
+        putRequest.timeoutInterval = requestTimeout
+        putRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        let (_, putResp) = try await session.upload(for: putRequest, from: data)
+        guard let putHttp = putResp as? HTTPURLResponse else {
+            throw Error.malformedResponse
+        }
+        if !(200..<300).contains(putHttp.statusCode) {
+            throw Error.httpStatus(putHttp.statusCode)
+        }
+
+        return SendAttachment(
+            path: mint.path,
+            filename: filename,
+            size: data.count,
+            contentType: contentType
+        )
+    }
+
+    private func postSendAsCustomer(
+        appId: String,
+        idToken: String,
+        body: String,
+        attachments: [SendAttachment],
+        name: String?,
+        conversationId: String?
+    ) async throws -> SendResult {
+        var sendRequest = URLRequest(url: config.sendAsCustomerURL)
+        sendRequest.httpMethod = "POST"
+        sendRequest.timeoutInterval = requestTimeout
+        sendRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var payload: [String: Any] = [
+            "appId": appId,
+            "idToken": idToken,
+            "body": body,
+        ]
+        if let name, !name.isEmpty { payload["name"] = name }
+        if let conversationId, !conversationId.isEmpty {
+            payload["conversationId"] = conversationId
+        }
+        if !attachments.isEmpty {
+            payload["attachments"] = attachments.map { a -> [String: Any] in
+                [
+                    "path": a.path,
+                    "filename": a.filename,
+                    "size": a.size,
+                    "contentType": a.contentType,
+                ]
+            }
+        }
+        sendRequest.httpBody = try JSONSerialization.data(
+            withJSONObject: ["data": payload], options: []
+        )
+
+        let (sendBody, sendResp) = try await session.data(for: sendRequest)
+        guard let sendHttp = sendResp as? HTTPURLResponse else {
+            throw Error.malformedResponse
+        }
+        if !(200..<300).contains(sendHttp.statusCode) {
+            if let err = try? JSONDecoder().decode(CallableErrorEnvelope.self, from: sendBody) {
+                throw Error.callable(status: err.error.status, message: err.error.message)
+            }
+            throw Error.httpStatus(sendHttp.statusCode)
+        }
+        let r = try JSONDecoder().decode(SendAsCustomerEnvelope.self, from: sendBody).result
+        return SendResult(conversationId: r.conversationId, messageId: r.messageId)
+    }
+}
+
+// File extension → MIME type, just enough for common cases. Falls back
+// to application/octet-stream when unknown — GCS still accepts it.
+private func guessContentType(for url: URL) -> String {
+    let ext = url.pathExtension.lowercased()
+    switch ext {
+    case "txt", "log": return "text/plain"
+    case "json": return "application/json"
+    case "xml": return "application/xml"
+    case "html", "htm": return "text/html"
+    case "csv": return "text/csv"
+    case "pdf": return "application/pdf"
+    case "png": return "image/png"
+    case "jpg", "jpeg": return "image/jpeg"
+    case "gif": return "image/gif"
+    case "heic": return "image/heic"
+    case "mov": return "video/quicktime"
+    case "mp4": return "video/mp4"
+    case "zip": return "application/zip"
+    default: return "application/octet-stream"
+    }
 }
 
 // MARK: - Wire types
@@ -104,4 +282,29 @@ private struct CallableErrorEnvelope: Decodable {
 private struct CallableErrorBody: Decodable {
     let message: String
     let status: String
+}
+
+private struct SignedUploadEnvelope: Decodable {
+    let result: SignedUploadResult
+}
+
+private struct SignedUploadResult: Decodable {
+    let uploadUrl: String
+    let path: String
+}
+
+private struct SendAttachment: Sendable {
+    let path: String
+    let filename: String
+    let size: Int
+    let contentType: String
+}
+
+private struct SendAsCustomerEnvelope: Decodable {
+    let result: SendAsCustomerResult
+}
+
+private struct SendAsCustomerResult: Decodable {
+    let conversationId: String
+    let messageId: String
 }
