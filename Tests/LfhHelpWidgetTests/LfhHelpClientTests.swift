@@ -137,6 +137,36 @@ final class LfhHelpClientTests: XCTestCase {
         }
     }
 
+    func testIssueSignatureAppliesCustomTimeout() async throws {
+        StubURLProtocol.nextStub = .init(
+            status: 200,
+            body: #"{"result":{"email":"x@y.com","sig":"s","v":1}}"#.data(using: .utf8)!
+        )
+        let client = LfhHelpClient(
+            config: .production,
+            session: makeStubbedSession(),
+            requestTimeout: 12.5
+        )
+
+        _ = try await client.issueSignature(appId: "app1", idToken: "tok", name: nil)
+
+        let req = try XCTUnwrap(StubURLProtocol.lastRequest)
+        XCTAssertEqual(req.timeoutInterval, 12.5, accuracy: 0.01)
+    }
+
+    func testIssueSignatureDefaultTimeoutIsSixty() async throws {
+        StubURLProtocol.nextStub = .init(
+            status: 200,
+            body: #"{"result":{"email":"x@y.com","sig":"s","v":1}}"#.data(using: .utf8)!
+        )
+        let client = LfhHelpClient(config: .production, session: makeStubbedSession())
+
+        _ = try await client.issueSignature(appId: "app1", idToken: "tok", name: nil)
+
+        let req = try XCTUnwrap(StubURLProtocol.lastRequest)
+        XCTAssertEqual(req.timeoutInterval, 60, accuracy: 0.01)
+    }
+
     func testIssueSignatureHandlesNon2xxWithoutErrorEnvelope() async throws {
         StubURLProtocol.nextStub = .init(
             status: 502,

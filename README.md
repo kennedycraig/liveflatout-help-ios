@@ -84,6 +84,16 @@ current signed-in user. `LfhHelpClient` defaults to production endpoints in
 `LfhHelpConfig.production`; override via `LfhHelpClient(config: .init(...))`
 for local or staging testing.
 
+### Request timeout
+
+`LfhHelpClient`'s `issueSignature(...)` inherits Foundation's 60-second
+request timeout by default. Tighten it if you'd rather show a "try again"
+UI sooner than that on a stalled cold start:
+
+```swift
+let client = LfhHelpClient(requestTimeout: 15)
+```
+
 ## Low-level: `LfhHelpWidget` directly
 
 If `HelpSheet`'s chrome doesn't fit your presentation style, skip it and

@@ -15,10 +15,23 @@ public actor LfhHelpClient {
 
     private let config: LfhHelpConfig
     private let session: URLSession
+    private let requestTimeout: TimeInterval
 
-    public init(config: LfhHelpConfig = .production, session: URLSession = .shared) {
+    /// - Parameters:
+    ///   - config: endpoint config; defaults to production.
+    ///   - session: URLSession instance; defaults to `.shared`.
+    ///   - requestTimeout: per-request timeout in seconds. Default `60` matches
+    ///     Foundation's own default — tighten it (e.g. `15`) if your host app
+    ///     prefers to fail fast and show a different UI instead of letting the
+    ///     user wait out a stalled Cloud Run cold start.
+    public init(
+        config: LfhHelpConfig = .production,
+        session: URLSession = .shared,
+        requestTimeout: TimeInterval = 60
+    ) {
         self.config = config
         self.session = session
+        self.requestTimeout = requestTimeout
     }
 
     /// Exchanges a host-app Firebase ID token for a Secure-Mode identity.
@@ -38,6 +51,7 @@ public actor LfhHelpClient {
     ) async throws -> Identity {
         var request = URLRequest(url: config.issueSignatureURL)
         request.httpMethod = "POST"
+        request.timeoutInterval = requestTimeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var data: [String: String] = ["appId": appId, "idToken": idToken]
         if let name, !name.isEmpty { data["name"] = name }
