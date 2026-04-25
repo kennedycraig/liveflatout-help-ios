@@ -4,30 +4,36 @@ SwiftUI embed for the helpdesk chat widget.
 
 ## Adding the package
 
-> **Monorepo caveat:** this package lives at `packages/ios-widget/` inside the
-> helpdesk monorepo. Swift Package Manager expects `Package.swift` at the root
-> of a fetched git URL, so you **cannot** depend on this via a GitHub URL today.
-> Use a **local path dependency** while dogfooding:
+Host apps depend on the published mirror repo. SwiftPM URL form:
 
 ```swift
 // Host app's Package.swift
 dependencies: [
-    .package(path: "../liveFlatoutHelp/packages/ios-widget"),
+    .package(
+        url: "https://github.com/kennedycraig/liveflatout-help-ios.git",
+        from: "0.1.0"
+    ),
 ],
 targets: [
     .target(
         name: "HostApp",
-        dependencies: [.product(name: "LfhHelpWidget", package: "ios-widget")]
+        dependencies: [
+            .product(name: "LfhHelpWidget", package: "liveflatout-help-ios"),
+        ]
     ),
 ]
 ```
 
-If your host app is an Xcode project (not a Swift package), add the local
-package via **File → Add Packages… → Add Local…** and select
-`packages/ios-widget`.
+Or in Xcode: **File → Add Package Dependencies… → Search or Enter Package URL**
+→ paste `https://github.com/kennedycraig/liveflatout-help-ios.git` →
+**Add Package**. Pick "Up to Next Major Version" starting at `0.1.0`.
 
-A separate mirror repository for remote consumption is tracked in
-`docs/backlog.md`.
+> **Where the source lives:** the canonical source is in the
+> [`liveFlatoutHelp` monorepo](https://github.com/kennedycraig/liveFlatoutHelp)
+> at `packages/ios-widget/`. The
+> [`liveflatout-help-ios`](https://github.com/kennedycraig/liveflatout-help-ios)
+> repo is a one-way mirror produced by `git subtree split` from the monorepo
+> on each release. File issues and PRs against the monorepo, not the mirror.
 
 ## `HelpSheet` — batteries-included
 
