@@ -65,13 +65,22 @@ public struct LfhHelpWidget: UIViewRepresentable {
         }
         #endif
 
-        webView.load(URLRequest(url: iframeURL()))
+        let initial = iframeURL()
+        context.coordinator.lastLoadedURL = initial
+        webView.load(URLRequest(url: initial))
         return webView
     }
 
     public func updateUIView(_ webView: WKWebView, context: Context) {
+        // Compare against the last URL we *intentionally* loaded, not
+        // webView.url — the iframe page strips its Secure Mode query
+        // params via history.replaceState() shortly after first load,
+        // so webView.url drifts from the target on every SwiftUI
+        // re-render. Reloading on that drift would re-mount the React
+        // tree, killing in-flight UI like a file picker.
         let target = iframeURL()
-        if webView.url != target {
+        if context.coordinator.lastLoadedURL != target {
+            context.coordinator.lastLoadedURL = target
             webView.load(URLRequest(url: target))
         }
         context.coordinator.onClose = onClose
@@ -84,6 +93,7 @@ public struct LfhHelpWidget: UIViewRepresentable {
 
     public final class Coordinator: NSObject, WKScriptMessageHandler {
         var onClose: (() -> Void)?
+        var lastLoadedURL: URL?
         init(onClose: (() -> Void)?) {
             self.onClose = onClose
         }
