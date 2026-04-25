@@ -85,7 +85,15 @@ import LfhHelpWidget
 
 .fullScreenCover(isPresented: $helpOpen) {
     HelpSheet(appId: "app1") {
-        guard let user = Auth.auth().currentUser else { return .anonymous }
+        // Secure Mode requires an email-bearing user. Anonymous users,
+        // phone-only users, and Sign in with Apple users where Apple
+        // didn't share an email all fall back to anonymous chat.
+        guard
+            let user = Auth.auth().currentUser,
+            let email = user.email, !email.isEmpty
+        else {
+            return .anonymous
+        }
         let token = try await user.getIDToken()
         return try await LfhHelpClient().issueSignature(
             appId: "app1",
@@ -100,6 +108,14 @@ The closure runs every time the sheet is presented, so it always sees the
 current signed-in user. `LfhHelpClient` defaults to production endpoints in
 `LfhHelpConfig.production`; override via `LfhHelpClient(config: .init(...))`
 for local or staging testing.
+
+> **`idToken has no email claim`?** That's the backend rejecting a
+> Secure-Mode call for a user whose ID token has no `email` field. The
+> `guard` above prevents it for anonymous and phone-only users. For
+> Sign in with Apple users, make sure the host app persists the email
+> Apple shares on the *first* sign-in to the Firebase user record
+> (`createUser`'s `Auth.auth().currentUser?.updateEmail(...)`) — Apple
+> won't share it again on subsequent sign-ins.
 
 > **Use `.fullScreenCover`, not `.sheet`.** SwiftUI tends to dismiss a
 > `.sheet` when an iOS system picker (e.g. `UIDocumentPicker`,
