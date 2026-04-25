@@ -176,6 +176,28 @@ let result = try await LfhHelpClient().sendMessage(
 )
 ```
 
+### Game Center (or other email-less auth)
+
+If your host app's Firebase Auth provider doesn't include an email
+claim — Game Center, phone-only, or Sign in with Apple where the user
+chose "Hide My Email" and you didn't capture it — supply the email
+explicitly. The backend uses it as the customer key when the token
+has no email of its own.
+
+```swift
+let result = try await LfhHelpClient().sendMessage(
+    appId: "app1",
+    idToken: token,
+    body: "Sending diagnostic logs.",
+    attachments: [logFile],
+    name: user.displayName,
+    email: storedSupportEmail   // collected once at first launch / first send
+)
+```
+
+A token-resident email always wins; the `email:` parameter is only
+consulted when the token has none.
+
 ### Multiple files
 
 ```swift

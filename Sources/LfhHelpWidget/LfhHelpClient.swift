@@ -7,10 +7,21 @@ import Foundation
 /// SPM package a leaf library — no FirebaseAuth or FirebaseFunctions pods
 /// pulled into the host app just to embed the widget.
 public actor LfhHelpClient {
-    public enum Error: Swift.Error, Equatable {
+    public enum Error: Swift.Error, Equatable, LocalizedError {
         case httpStatus(Int)
         case callable(status: String, message: String)
         case malformedResponse
+
+        public var errorDescription: String? {
+            switch self {
+            case .httpStatus(let code):
+                return "Helpdesk request failed with HTTP \(code)."
+            case .callable(let status, let message):
+                return "Helpdesk \(status): \(message)"
+            case .malformedResponse:
+                return "Helpdesk returned an unrecognised response."
+            }
+        }
     }
 
     private let config: LfhHelpConfig
@@ -106,6 +117,11 @@ public actor LfhHelpClient {
     ///   - attachments: local file URLs to upload and attach. Each
     ///     uploaded as its own object under the customer's prefix.
     ///   - name: optional display name to upsert onto the customer doc.
+    ///   - email: optional fallback email for host apps whose Firebase
+    ///     Auth provider doesn't include an email claim (Game Center,
+    ///     phone-only). Used only when the idToken has no email of its
+    ///     own; ignored otherwise. Without either path supplying an
+    ///     email the call fails with `failed-precondition`.
     ///   - conversationId: append to a specific conversation; otherwise
     ///     finds-or-creates the customer's most-recent thread.
     /// - Returns: ids of the conversation + message that were written.
@@ -115,11 +131,19 @@ public actor LfhHelpClient {
         body: String,
         attachments: [URL] = [],
         name: String? = nil,
+        email: String? = nil,
         conversationId: String? = nil
     ) async throws -> SendResult {
         var uploaded: [SendAttachment] = []
         for url in attachments {
-            uploaded.append(try await uploadOneAttachment(appId: appId, idToken: idToken, fileURL: url))
+            uploaded.append(
+                try await uploadOneAttachment(
+                    appId: appId,
+                    idToken: idToken,
+                    fileURL: url,
+                    email: email
+                )
+            )
         }
         return try await postSendAsCustomer(
             appId: appId,
@@ -127,6 +151,7 @@ public actor LfhHelpClient {
             body: body,
             attachments: uploaded,
             name: name,
+            email: email,
             conversationId: conversationId
         )
     }
@@ -135,7 +160,8 @@ public actor LfhHelpClient {
     private func uploadOneAttachment(
         appId: String,
         idToken: String,
-        fileURL: URL
+        fileURL: URL,
+        email: String?
     ) async throws -> SendAttachment {
         let data = try Data(contentsOf: fileURL)
         let filename = fileURL.lastPathComponent
@@ -146,15 +172,15 @@ public actor LfhHelpClient {
         mintRequest.httpMethod = "POST"
         mintRequest.timeoutInterval = requestTimeout
         mintRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let mintPayload: [String: Any] = [
-            "data": [
-                "appId": appId,
-                "idToken": idToken,
-                "filename": filename,
-                "contentType": contentType,
-                "size": data.count,
-            ],
+        var mintData: [String: Any] = [
+            "appId": appId,
+            "idToken": idToken,
+            "filename": filename,
+            "contentType": contentType,
+            "size": data.count,
         ]
+        if let email, !email.isEmpty { mintData["email"] = email }
+        let mintPayload: [String: Any] = ["data": mintData]
         mintRequest.httpBody = try JSONSerialization.data(withJSONObject: mintPayload, options: [])
         let (mintBody, mintResp) = try await session.data(for: mintRequest)
         guard let mintHttp = mintResp as? HTTPURLResponse else {
@@ -196,6 +222,7 @@ public actor LfhHelpClient {
         body: String,
         attachments: [SendAttachment],
         name: String?,
+        email: String?,
         conversationId: String?
     ) async throws -> SendResult {
         var sendRequest = URLRequest(url: config.sendAsCustomerURL)
@@ -208,6 +235,7 @@ public actor LfhHelpClient {
             "body": body,
         ]
         if let name, !name.isEmpty { payload["name"] = name }
+        if let email, !email.isEmpty { payload["email"] = email }
         if let conversationId, !conversationId.isEmpty {
             payload["conversationId"] = conversationId
         }
