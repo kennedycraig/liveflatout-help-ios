@@ -53,12 +53,12 @@ public actor LfhHelpClient {
     ///     *in the host app's Firebase project* (which must be listed on
     ///     `/apps/{appId}.trustedProjects[]`).
     ///   - name: optional display name; the server echoes it into the response.
-    ///   - email: optional fallback email for a token with no email claim
-    ///     (anonymous, Game Center, phone-only) — typically the address the
-    ///     user gave when sending a report via `sendMessage(email:)`. The
-    ///     widget is then signed as that email, so it opens the same
-    ///     conversation as their reports. Ignored when the token carries its
-    ///     own email. Without it, an email-less token can't be signed at all.
+    ///   - email: optional contact email — the address the user gave when
+    ///     sending a report via `sendMessage(email:)`. Shown to agents and
+    ///     used to reply; it never decides who the widget signs in as. That
+    ///     comes from the token alone: a verified email, or else the host
+    ///     account, so a user without a verified email still opens the same
+    ///     conversation as their reports.
     /// - Returns: `.signed(...)` Identity that can be passed to `LfhHelpWidget`.
     /// - Throws: `LfhHelpClient.Error` on HTTP or callable failures.
     public func issueSignature(

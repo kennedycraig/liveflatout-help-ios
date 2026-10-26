@@ -101,8 +101,8 @@ final class LfhHelpClientTests: XCTestCase {
         XCTAssertNil(data?["name"])
     }
 
-    /// An email-less host user (anonymous, Game Center) can only be signed as the
-    /// email their reports file under if the client sends it.
+    /// The contact email a user typed into a report travels with the signature
+    /// request, so agents see it beside the conversation.
     func testIssueSignatureSendsFallbackEmail() async throws {
         StubURLProtocol.nextStub = .init(
             status: 200,
