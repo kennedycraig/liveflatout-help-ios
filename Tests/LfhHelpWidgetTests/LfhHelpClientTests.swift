@@ -101,6 +101,38 @@ final class LfhHelpClientTests: XCTestCase {
         XCTAssertNil(data?["name"])
     }
 
+    /// An email-less host user (anonymous, Game Center) can only be signed as the
+    /// email their reports file under if the client sends it.
+    func testIssueSignatureSendsFallbackEmail() async throws {
+        StubURLProtocol.nextStub = .init(
+            status: 200,
+            body: #"{"result":{"email":"parent@example.com","sig":"s","v":1}}"#.data(using: .utf8)!
+        )
+        let client = LfhHelpClient(config: .production, session: makeStubbedSession())
+
+        _ = try await client.issueSignature(appId: "app1", idToken: "tok", name: nil, email: "parent@example.com")
+
+        let body = try XCTUnwrap(StubURLProtocol.lastRequest?.httpBody)
+        let parsed = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        let data = parsed?["data"] as? [String: Any]
+        XCTAssertEqual(data?["email"] as? String, "parent@example.com")
+    }
+
+    func testIssueSignatureOmitsBlankFallbackEmail() async throws {
+        StubURLProtocol.nextStub = .init(
+            status: 200,
+            body: #"{"result":{"email":"x@y.com","sig":"s","v":1}}"#.data(using: .utf8)!
+        )
+        let client = LfhHelpClient(config: .production, session: makeStubbedSession())
+
+        _ = try await client.issueSignature(appId: "app1", idToken: "tok", name: nil, email: "  ")
+
+        let body = try XCTUnwrap(StubURLProtocol.lastRequest?.httpBody)
+        let parsed = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        let data = parsed?["data"] as? [String: Any]
+        XCTAssertNil(data?["email"])
+    }
+
     func testIssueSignatureReturnsIdentity() async throws {
         StubURLProtocol.nextStub = .init(
             status: 200,

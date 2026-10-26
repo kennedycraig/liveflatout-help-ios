@@ -53,12 +53,19 @@ public actor LfhHelpClient {
     ///     *in the host app's Firebase project* (which must be listed on
     ///     `/apps/{appId}.trustedProjects[]`).
     ///   - name: optional display name; the server echoes it into the response.
+    ///   - email: optional fallback email for a token with no email claim
+    ///     (anonymous, Game Center, phone-only) — typically the address the
+    ///     user gave when sending a report via `sendMessage(email:)`. The
+    ///     widget is then signed as that email, so it opens the same
+    ///     conversation as their reports. Ignored when the token carries its
+    ///     own email. Without it, an email-less token can't be signed at all.
     /// - Returns: `.signed(...)` Identity that can be passed to `LfhHelpWidget`.
     /// - Throws: `LfhHelpClient.Error` on HTTP or callable failures.
     public func issueSignature(
         appId: String,
         idToken: String,
-        name: String?
+        name: String?,
+        email: String? = nil
     ) async throws -> Identity {
         var request = URLRequest(url: config.issueSignatureURL)
         request.httpMethod = "POST"
@@ -66,6 +73,9 @@ public actor LfhHelpClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var data: [String: String] = ["appId": appId, "idToken": idToken]
         if let name, !name.isEmpty { data["name"] = name }
+        if let email = email?.trimmingCharacters(in: .whitespacesAndNewlines), !email.isEmpty {
+            data["email"] = email
+        }
         let envelope: [String: Any] = ["data": data]
         request.httpBody = try JSONSerialization.data(withJSONObject: envelope, options: [])
 
